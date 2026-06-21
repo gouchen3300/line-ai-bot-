@@ -1,3 +1,41 @@
+from fastapi import FastAPI, Request, HTTPException
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
+import os
+from dotenv import load_dotenv
+import google.generativeai as genai
+
+load_dotenv()
+
+CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if not CHANNEL_ACCESS_TOKEN or not CHANNEL_SECRET or not GEMINI_API_KEY:
+    raise ValueError("Missing environment variables")
+
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-2.0-flash")
+
+app = FastAPI()
+line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(CHANNEL_SECRET)
+
+@app.get("/")
+async def root():
+    return {"message": "LINE AI Bot is running!"}
+
+@app.post("/webhook/line")
+async def line_webhook(request: Request):
+    signature = request.headers.get("X-Line-Signature", "")
+    body = await request.body()
+    try:
+        handler.handle(body.decode("utf-8"), signature)
+    except InvalidSignatureError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+    return "OK"
+
 def ask_gemini(prompt: str) -> str:
     try:
         response = model.generate_content(prompt)
@@ -45,10 +83,9 @@ def route_command(text: str) -> str:
         return ask_gemini(prompt)
 
     if text.startswith("#早安圖"):
-        return "早安圖功能我已經收到，下一步會幫你改成自動產生圖片。你也可以先輸入：#早安圖 早安、祝你今天順心"
+        return "早安圖功能我已收到，下一步會幫你改成圖片版本。"
 
-    prompt = f"請用繁體中文簡潔回答這句話：{text}"
-    return ask_gemini(prompt)
+    return ask_gemini(f"請用繁體中文簡潔回答這句話：{text}")
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
