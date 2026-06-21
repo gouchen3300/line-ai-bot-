@@ -13,7 +13,7 @@ CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-flash-latest")
 
 app = FastAPI()
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
