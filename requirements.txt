@@ -4,3 +4,4 @@ line-bot-sdk==2.4.2
 google-generativeai
 python-dotenv
 requests
+PYTHON_VERSION=3.12.7
