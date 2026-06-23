@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
-from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, ReplyMessageRequest, ImageMessage
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, ReplyMessageRequest
 from linebot.v3.messaging.models import TextMessage as TextMessageModel
 from linebot.v3.webhook import WebhookParser, InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
@@ -40,6 +40,7 @@ async def line_webhook(request: Request):
         if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
             text = event.message.text.strip()
             reply_messages = route_command(text)
+
             messaging_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
@@ -62,14 +63,18 @@ def route_command(text: str):
     return [TextMessageModel(text="請輸入 #英文、#早安圖 或 #新聞")]
 
 def handle_english(text: str):
-    content = text.replace("#英文", "").strip()
+    content = text.replace("#英文", "", 1).strip()
+
     if not content:
         return [TextMessageModel(text="請輸入英文句子，例如：#英文 How are you doing?")]
 
     reply = (
         f"英文句子：{content}\n\n"
-        f"中文意思：\n（先由你手動補充或我下一步幫你做簡單規則）\n\n"
-        f"文法重點：\n（先由你手動補充或我下一步幫你做簡單規則）"
+        f"中文意思：\n目前先由你手動補上，之後我可以再幫你做自動模板。\n\n"
+        f"文法重點：\n目前先由你手動補上。\n\n"
+        f"單字重點：\n目前先由你手動補上。\n\n"
+        f"更自然說法：\n目前先由你手動補上。\n\n"
+        f"例句：\n目前先由你手動補上。"
     )
     return [TextMessageModel(text=reply)]
 
@@ -77,7 +82,7 @@ def handle_greeting():
     return [TextMessageModel(text="早安！祝你今天順利。")]
 
 def handle_news():
-    rss_url = "https://tw.news.yahoo.com/rss/"  # 你之後可換成其他 RSS
+    rss_url = "https://tw.news.yahoo.com/rss/"
     feed = feedparser.parse(rss_url)
 
     if not feed.entries:
