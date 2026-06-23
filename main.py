@@ -6,6 +6,7 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from dotenv import load_dotenv
 import feedparser
 import os
+import re
 
 load_dotenv()
 
@@ -21,6 +22,14 @@ configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 client = ApiClient(configuration)
 messaging_api = MessagingApi(client)
 parser = WebhookParser(LINE_CHANNEL_SECRET)
+
+QUESTION_STARTERS = {
+    "what", "where", "when", "why", "who", "how",
+    "do", "does", "did", "is", "are", "am", "was", "were",
+    "can", "could", "will", "would", "should", "have", "has", "had"
+}
+
+BE_VERBS = {"am", "is", "are", "was", "were", "be", "been", "being"}
 
 @app.get("/")
 async def root():
@@ -62,29 +71,91 @@ def route_command(text: str):
 
     return [TextMessageModel(text="請輸入 #英文、#早安圖 或 #新聞")]
 
+def detect_sentence_type(sentence: str) -> str:
+    s = sentence.strip().lower()
+    s = s.rstrip(".!?")
+
+    if not s:
+        return "unknown"
+
+    first_word = re.split(r"\s+", s)[0]
+
+    if sentence.strip().endswith("?") or first_word in QUESTION_STARTERS:
+        return "question"
+
+    words = set(re.findall(r"\b[a-z']+\b", s))
+    if words & BE_VERBS:
+        return "be_verb"
+
+    return "general_verb"
+
 def handle_english(text: str):
     content = text.replace("#英文", "", 1).strip()
 
     if not content:
         return [TextMessageModel(text="請輸入英文句子，例如：#英文 How are you doing?")]
 
-    reply = f"""英文句子：
+    sentence_type = detect_sentence_type(content)
+
+    if sentence_type == "question":
+        reply = f"""句型判斷：問句
+
+英文句子：
 {content}
 
 中文意思：
 （請先自行翻譯）
 
 文法重點：
-（句型、時態、介系詞、主詞動詞一致）
+1. 這句是問句。
+2. 觀察句首助動詞 / 疑問詞。
+3. 注意問句語序與語氣。
 
-單字重點：
-（列出 1～3 個關鍵單字）
-
-更自然說法：
-（如果有更口語的講法，可寫在這裡）
+回答方向：
+（可回答 Yes/No 或完整句）
 
 例句：
-（再提供 1 句相似句）"""
+（請補一個相似問句）"""
+
+    elif sentence_type == "be_verb":
+        reply = f"""句型判斷：be 動詞句
+
+英文句子：
+{content}
+
+中文意思：
+（請先自行翻譯）
+
+文法重點：
+1. 這句含有 be 動詞。
+2. 常見結構：主詞 + be 動詞 + 補語。
+3. be 動詞後面常接形容詞、名詞或介系詞片語。
+
+單字重點：
+（列出關鍵單字）
+
+例句：
+（請補一個相似句）"""
+
+    else:
+        reply = f"""句型判斷：一般動詞句
+
+英文句子：
+{content}
+
+中文意思：
+（請先自行翻譯）
+
+文法重點：
+1. 這句不是問句，也不是典型 be 動詞句。
+2. 常見結構：主詞 + 動詞 + 受詞 / 補語。
+3. 注意第三人稱單數、時態與動詞變化。
+
+單字重點：
+（列出關鍵單字）
+
+例句：
+（請補一個相似句）"""
 
     return [TextMessageModel(text=reply)]
 
