@@ -68,14 +68,24 @@ def handle_english(text: str):
     if not content:
         return [TextMessageModel(text="請輸入英文句子，例如：#英文 How are you doing?")]
 
-    reply = (
-        f"英文句子：{content}\n\n"
-        f"中文意思：\n目前先由你手動補上，之後我可以再幫你做自動模板。\n\n"
-        f"文法重點：\n目前先由你手動補上。\n\n"
-        f"單字重點：\n目前先由你手動補上。\n\n"
-        f"更自然說法：\n目前先由你手動補上。\n\n"
-        f"例句：\n目前先由你手動補上。"
-    )
+    reply = f"""英文句子：
+{content}
+
+中文意思：
+（請先自行翻譯）
+
+文法重點：
+（句型、時態、介系詞、主詞動詞一致）
+
+單字重點：
+（列出 1～3 個關鍵單字）
+
+更自然說法：
+（如果有更口語的講法，可寫在這裡）
+
+例句：
+（再提供 1 句相似句）"""
+
     return [TextMessageModel(text=reply)]
 
 def handle_greeting():
