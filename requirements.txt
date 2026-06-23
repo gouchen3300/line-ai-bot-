@@ -1,5 +1,5 @@
 fastapi
 uvicorn[standard]
 line-bot-sdk>=3.0.0
-google-genai
 python-dotenv
+feedparser
