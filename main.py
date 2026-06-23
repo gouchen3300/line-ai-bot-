@@ -1,20 +1,18 @@
 from fastapi import FastAPI, Request, HTTPException
-from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, ReplyMessageRequest
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, TextMessage, ReplyMessageRequest, ImageMessage
 from linebot.v3.messaging.models import TextMessage as TextMessageModel
-from linebot.v3.webhook import WebhookParser
-from linebot.v3.webhook import InvalidSignatureError
+from linebot.v3.webhook import WebhookParser, InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from dotenv import load_dotenv
-from google import genai
+import feedparser
 import os
 
 load_dotenv()
 
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET or not GEMINI_API_KEY:
+if not LINE_CHANNEL_ACCESS_TOKEN or not LINE_CHANNEL_SECRET:
     raise ValueError("Missing environment variables")
 
 app = FastAPI()
@@ -24,11 +22,9 @@ client = ApiClient(configuration)
 messaging_api = MessagingApi(client)
 parser = WebhookParser(LINE_CHANNEL_SECRET)
 
-genai_client = genai.Client(api_key=GEMINI_API_KEY)
-
 @app.get("/")
 async def root():
-    return {"message": "LINE AI Bot is running!"}
+    return {"message": "LINE bot is running"}
 
 @app.post("/webhook/line")
 async def line_webhook(request: Request):
@@ -42,40 +38,55 @@ async def line_webhook(request: Request):
 
     for event in events:
         if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
-            reply_text = route_command(event.message.text)
+            text = event.message.text.strip()
+            reply_messages = route_command(text)
             messaging_api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
-                    messages=[TextMessageModel(text=reply_text)]
+                    messages=reply_messages
                 )
             )
 
     return "OK"
 
-def ask_gemini(prompt: str) -> str:
-    try:
-        response = genai_client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
-        )
-        return response.text or "AI 沒有回傳內容"
-    except Exception as e:
-        return f"AI 錯誤：{str(e)}"
-
-def route_command(text: str) -> str:
+def route_command(text: str):
     if text.startswith("#英文"):
-        content = text.replace("#英文", "").strip()
-        if not content:
-            return "請輸入英文句子，例如：#英文 How are you doing?"
-        return ask_gemini(f"你是一位英文老師，請用繁體中文分析這句英文：{content}。請包含中文意思、文法重點、單字重點、自然口語說法、例句。")
-
-    if text.startswith("#園藝"):
-        content = text.replace("#園藝", "").strip()
-        if not content:
-            return "請輸入園藝問題，例如：#園藝 多肉植物多久澆一次水？"
-        return ask_gemini(f"你是一位專業園藝小幫手，請用繁體中文回答這個問題：{content}。請包含照顧方式、澆水建議、日照需求、土壤建議、常見問題與注意事項。")
+        return handle_english(text)
 
     if text.startswith("#早安圖"):
-        return "早安圖功能已收到，下一步我會幫你改成圖片版。"
+        return handle_greeting()
 
-    return ask_gemini(f"請用繁體中文簡潔回答這句話：{text}")
+    if text.startswith("#新聞"):
+        return handle_news()
+
+    return [TextMessageModel(text="請輸入 #英文、#早安圖 或 #新聞")]
+
+def handle_english(text: str):
+    content = text.replace("#英文", "").strip()
+    if not content:
+        return [TextMessageModel(text="請輸入英文句子，例如：#英文 How are you doing?")]
+
+    reply = (
+        f"英文句子：{content}\n\n"
+        f"中文意思：\n（先由你手動補充或我下一步幫你做簡單規則）\n\n"
+        f"文法重點：\n（先由你手動補充或我下一步幫你做簡單規則）"
+    )
+    return [TextMessageModel(text=reply)]
+
+def handle_greeting():
+    return [TextMessageModel(text="早安！祝你今天順利。")]
+
+def handle_news():
+    rss_url = "https://tw.news.yahoo.com/rss/"  # 你之後可換成其他 RSS
+    feed = feedparser.parse(rss_url)
+
+    if not feed.entries:
+        return [TextMessageModel(text="目前沒有抓到新聞。")]
+
+    lines = ["今日新聞摘要："]
+    for i, entry in enumerate(feed.entries[:5], 1):
+        title = getattr(entry, "title", "無標題")
+        link = getattr(entry, "link", "")
+        lines.append(f"{i}. {title}\n{link}")
+
+    return [TextMessageModel(text="\n\n".join(lines))]
