@@ -23,13 +23,28 @@ client = ApiClient(configuration)
 messaging_api = MessagingApi(client)
 parser = WebhookParser(LINE_CHANNEL_SECRET)
 
-QUESTION_STARTERS = {
-    "what", "where", "when", "why", "who", "how",
-    "do", "does", "did", "is", "are", "am", "was", "were",
-    "can", "could", "will", "would", "should", "have", "has", "had"
+QUESTION_WORDS = {
+    "what", "where", "when", "why", "who", "whom", "whose", "which", "how"
 }
 
-BE_VERBS = {"am", "is", "are", "was", "were", "be", "been", "being"}
+BE_FORMS = {"am", "is", "are", "was", "were"}
+DO_FORMS = {"do", "does", "did"}
+MODALS = {
+    "can", "could", "will", "would", "shall", "should",
+    "may", "might", "must"
+}
+AUX_FORMS = BE_FORMS | DO_FORMS | MODALS | {"have", "has", "had"}
+
+COMMON_VERBS = {
+    "am", "is", "are", "was", "were", "be", "been", "being",
+    "do", "does", "did", "have", "has", "had",
+    "like", "likes", "play", "plays", "eat", "eats", "read", "reads",
+    "go", "goes", "make", "makes", "take", "takes", "see", "sees",
+    "want", "wants", "need", "needs", "know", "knows", "say", "says",
+    "work", "works", "study", "studies", "live", "lives",
+    "swim", "swims", "run", "runs", "walk", "walks", "buy", "buys",
+    "watch", "watches", "teach", "teaches", "use", "uses"
+}
 
 @app.get("/")
 async def root():
@@ -71,108 +86,87 @@ def route_command(text: str):
 
     return [TextMessageModel(text="請輸入 #英文、#早安圖 或 #新聞")]
 
-def detect_sentence_type(sentence: str) -> str:
-    s = sentence.strip().lower()
-    s = s.rstrip(".!?")
-
+def get_first_word(sentence: str) -> str:
+    s = sentence.strip()
     if not s:
-        return "unknown"
+        return ""
+    m = re.match(r"^\s*([A-Za-z']+)", s)
+    return m.group(1).lower() if m else ""
 
-    first_word = re.split(r"\s+", s)[0]
+def detect_sentence_type(sentence: str) -> tuple[str, str]:
+    s = sentence.strip()
+    normalized = s.lower().rstrip(".!?")
 
-    if sentence.strip().endswith("?") or first_word in QUESTION_STARTERS:
-        return "question"
+    if not normalized:
+        return "unknown", ""
 
-    words = set(re.findall(r"\b[a-z']+\b", s))
-    if words & BE_VERBS:
-        return "be_verb"
+    first_word = get_first_word(s)
+    words = set(re.findall(r"\b[a-z']+\b", normalized))
 
-    return "general_verb"
+    if first_word in QUESTION_WORDS:
+        return "wh_question", first_word
 
-def handle_english(text: str):
-    content = text.replace("#英文", "", 1).strip()
+    if first_word in BE_FORMS:
+        if s.endswith("?"):
+            return "be_question", first_word
+        return "be_statement", first_word
 
-    if not content:
-        return [TextMessageModel(text="請輸入英文句子，例如：#英文 How are you doing?")]
+    if first_word in DO_FORMS:
+        if s.endswith("?"):
+            return "do_question", first_word
+        return "do_statement", first_word
 
-    sentence_type = detect_sentence_type(content)
+    if first_word in MODALS:
+        if s.endswith("?"):
+            return "modal_question", first_word
+        return "modal_statement", first_word
 
-    if sentence_type == "question":
-        reply = f"""句型判斷：問句
+    if words & BE_FORMS:
+        return "be_statement", first_word
 
-英文句子：
-{content}
+    return "general_statement", first_word
 
-中文意思：
-（請先自行翻譯）
+def split_simple_sentence(sentence: str):
+    s = sentence.strip().rstrip(".!?")
+    tokens = re.findall(r"[A-Za-z']+|[,]", s)
+    lower_tokens = [t.lower() for t in tokens if t != ","]
 
-文法重點：
-1. 這句是問句。
-2. 觀察句首助動詞 / 疑問詞。
-3. 注意問句語序與語氣。
+    subject = ""
+    verb = ""
+    object_part = ""
+    complement = ""
 
-回答方向：
-（可回答 Yes/No 或完整句）
+    if not lower_tokens:
+        return subject, verb, object_part, complement
 
-例句：
-（請補一個相似問句）"""
+    if lower_tokens[0] in QUESTION_WORDS or lower_tokens[0] in AUX_FORMS:
+        if len(tokens) >= 2:
+            subject = tokens[1]
+        if len(tokens) >= 3:
+            verb = tokens[2]
+        if len(tokens) >= 4:
+            rest = tokens[3:]
+            if lower_tokens[0] in BE_FORMS or lower_tokens[0] in MODALS or lower_tokens[0] in DO_FORMS:
+                complement = " ".join(rest)
+            else:
+                object_part = " ".join(rest)
+        return subject, verb, object_part, complement
 
-    elif sentence_type == "be_verb":
-        reply = f"""句型判斷：be 動詞句
+    subject = tokens[0]
 
-英文句子：
-{content}
+    if len(tokens) >= 2:
+        verb = tokens[1]
 
-中文意思：
-（請先自行翻譯）
+    if len(tokens) >= 3:
+        if verb.lower() in BE_FORMS:
+            complement = " ".join(tokens[2:])
+        else:
+            object_part = " ".join(tokens[2:])
 
-文法重點：
-1. 這句含有 be 動詞。
-2. 常見結構：主詞 + be 動詞 + 補語。
-3. be 動詞後面常接形容詞、名詞或介系詞片語。
+    return subject, verb, object_part, complement
 
-單字重點：
-（列出關鍵單字）
-
-例句：
-（請補一個相似句）"""
-
-    else:
-        reply = f"""句型判斷：一般動詞句
-
-英文句子：
-{content}
-
-中文意思：
-（請先自行翻譯）
-
-文法重點：
-1. 這句不是問句，也不是典型 be 動詞句。
-2. 常見結構：主詞 + 動詞 + 受詞 / 補語。
-3. 注意第三人稱單數、時態與動詞變化。
-
-單字重點：
-（列出關鍵單字）
-
-例句：
-（請補一個相似句）"""
-
-    return [TextMessageModel(text=reply)]
-
-def handle_greeting():
-    return [TextMessageModel(text="早安！祝你今天順利。")]
-
-def handle_news():
-    rss_url = "https://tw.news.yahoo.com/rss/"
-    feed = feedparser.parse(rss_url)
-
-    if not feed.entries:
-        return [TextMessageModel(text="目前沒有抓到新聞。")]
-
-    lines = ["今日新聞摘要："]
-    for i, entry in enumerate(feed.entries[:5], 1):
-        title = getattr(entry, "title", "無標題")
-        link = getattr(entry, "link", "")
-        lines.append(f"{i}. {title}\n{link}")
-
-    return [TextMessageModel(text="\n\n".join(lines))]
+def format_table(rows):
+    title_width = max(len(r[0]) for r in rows)
+    value_width = max(len(r[1]) for r in rows)
+    top = f"╔{'═' * (title_width + 2)}╦{'═' * (value_width + 2)}╗"
+    mid = 
