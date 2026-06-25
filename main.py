@@ -1,6 +1,8 @@
 import os
-import re
+import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, HTTPException
+
 from linebot.v3.messaging import (
     Configuration,
     ApiClient,
@@ -10,10 +12,7 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhook import WebhookParser, InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
-from dotenv import load_dotenv
-import requests
 
-# 讀取環境變數
 load_dotenv()
 
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -30,9 +29,62 @@ client = ApiClient(configuration)
 messaging_api = MessagingApi(client)
 parser = WebhookParser(LINE_CHANNEL_SECRET)
 
+GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+
 @app.get("/")
 async def root():
-    return {"message": "AI智慧小幫手 (Gemini 2.5 復活完全體) 正在運行中"}
+    return {"message": "AI智慧小幫手 (Gemini) 正在運行中"}
+
+
+def ask_gemini(user_message: str) -> str:
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY,
+    }
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": user_message}
+                ]
+            }
+        ]
+    }
+
+    try:
+        response = requests.post(GEMINI_URL, json=payload, headers=headers, timeout=20)
+    except requests.RequestException as e:
+        return f"【AI連線失敗】\n原因: {str(e)}"
+
+    try:
+        res_json = response.json()
+    except Exception:
+        return f"【Google回應異常】\n狀態碼: {response.status_code}\n內容: {response.text[:500]}"
+
+    if response.status_code != 200:
+        error_msg = res_json.get("error", {}).get("message", "未知錯誤")
+        return f"【Google拒絕連線】\n原因: {error_msg}"
+
+    try:
+        candidates = res_json.get("candidates", [])
+        if not candidates:
+            return "【AI回應空白】\nGoogle沒有回傳 candidates。"
+
+        parts = candidates[0].get("content", {}).get("parts", [])
+        if not parts:
+            return "【AI回應空白】\nGoogle沒有回傳內容段落。"
+
+        reply_text = parts[0].get("text", "")
+        if not reply_text.strip():
+            return "【AI回應空白】\n模型回覆是空字串。"
+
+        return reply_text
+    except Exception as e:
+        return f"【AI解析失敗】\n原因: {str(e)}"
+
 
 @app.post("/webhook/line")
 async def line_webhook(request: Request):
@@ -48,32 +100,19 @@ async def line_webhook(request: Request):
         try:
             if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
                 user_message = event.message.text.strip()
-                
-                # 🤖 真正連線至 Google Gemini AI (已完全升級為官方 2026 主力 gemini-2.5-flash 網址)
-                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-                headers = {"Content-Type": "application/json"}
-                payload = {"contents": [{"parts": [{"text": user_message}]}]}
-                
-                try:
-                    response = requests.post(api_url, json=payload, headers=headers, timeout=15)
-                    res_json = response.json()
-                    
-                    if response.status_code == 200:
-                        reply_text = res_json['candidates'][0]['content']['parts'][0]['text']
-                    else:
-                        error_msg = res_json.get('error', {}).get('message', '未知錯誤')
-                        reply_text = f"【Google連線異常】\n代碼: {response.status_code}\n原因: {error_msg}"
-                except Exception as ai_err:
-                    reply_text = f"【AI連線失敗】:\n{str(ai_err)}"
 
-                # 回傳給 LINE 使用者
+                if not user_message:
+                    reply_text = "請輸入文字訊息。"
+                else:
+                    reply_text = ask_gemini(user_message)
+
                 messaging_api.reply_message(
                     ReplyMessageRequest(
                         reply_token=event.reply_token,
-                        messages=[TextMessage(text=reply_text)]
+                        messages=[TextMessage(text=reply_text[:5000])]
                     )
                 )
         except Exception as e:
             print(f"Event error: {e}")
 
-    return "OK"
+    return {"status": "ok"}
