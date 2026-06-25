@@ -49,18 +49,20 @@ async def line_webhook(request: Request):
             if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
                 user_message = event.message.text.strip()
                 
-                # 🤖 真正連線至 Google Gemini AI (已修正最新 API 網址路徑)
-                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                # 🤖 真正連線至 Google Gemini AI (已修正為官方標準 v1 正式版穩定路徑)
+                api_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
                 headers = {"Content-Type": "application/json"}
                 payload = {"contents": [{"parts": [{"text": user_message}]}]}
                 
                 try:
                     response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+                    res_json = response.json()
+                    
                     if response.status_code == 200:
-                        reply_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+                        reply_text = res_json['candidates'][0]['content']['parts'][0]['text']
                     else:
-                        error_msg = response.json().get('error', {}).get('message', '未知錯誤')
-                        reply_text = f"【AI拒絕連線】\n原因: {error_msg}"
+                        error_msg = res_json.get('error', {}).get('message', '未知錯誤')
+                        reply_text = f"【Google拒絕連線】\n代碼: {response.status_code}\n原因: {error_msg}"
                 except Exception as ai_err:
                     reply_text = f"【AI連線失敗】:\n{str(ai_err)}"
 
