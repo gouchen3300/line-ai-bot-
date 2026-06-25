@@ -13,7 +13,8 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from dotenv import load_dotenv
 import requests
 
-load_dotenv()
+# 【安全防線 1】暫時註解掉 load_dotenv()，確保專案內的舊舊 .env 檔案不會覆蓋掉 Render 後台的正確設定
+# load_dotenv()
 
 # 安全讀取 Render 後台設定的環境變數
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -32,7 +33,7 @@ parser = WebhookParser(LINE_CHANNEL_SECRET)
 
 @app.get("/")
 async def root():
-    return {"message": "AI智慧小幫手 (FastAPI 完全體) 正在運行中"}
+    return {"message": "AI智慧小幫手 (除錯完全體) 正在運行中"}
 
 @app.post("/webhook/line")
 async def line_webhook(request: Request):
@@ -49,7 +50,7 @@ async def line_webhook(request: Request):
             if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
                 user_message = event.message.text.strip()
                 
-                # 🤖 真正連線至 Google Gemini AI (已修正為官方標準 v1 正式版穩定路徑)
+                # 🤖 連線至 Google Gemini AI
                 api_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
                 headers = {"Content-Type": "application/json"}
                 payload = {"contents": [{"parts": [{"text": user_message}]}]}
@@ -62,7 +63,21 @@ async def line_webhook(request: Request):
                         reply_text = res_json['candidates'][0]['content']['parts'][0]['text']
                     else:
                         error_msg = res_json.get('error', {}).get('message', '未知錯誤')
-                        reply_text = f"【Google拒絕連線】\n代碼: {response.status_code}\n原因: {error_msg}"
+                        
+                        # 【安全防線 2】如果失敗，安全地遮罩金鑰，並顯示其長度，用來核對是否夾帶空格或變形
+                        debug_key = str(GEMINI_API_KEY)
+                        masked_key = f"{debug_key[:4]}...{debug_key[-4:]}" if len(debug_key) > 8 else debug_key
+                        
+                        reply_text = (
+                            f"【Google拒絕連線】\n"
+                            f"代碼: {response.status_code}\n"
+                            f"原因: {error_msg}\n"
+                            f"-----------------\n"
+                            f"💡 系統除錯資訊：\n"
+                            f"抓取到的變數開頭/結尾: {masked_key}\n"
+                            f"金鑰字串總長度: {len(debug_key)} 個字元\n"
+                            f"(提示：標準金鑰長度通常為 39 個字元，且開頭為 AIza)"
+                        )
                 except Exception as ai_err:
                     reply_text = f"【AI連線失敗】:\n{str(ai_err)}"
 
