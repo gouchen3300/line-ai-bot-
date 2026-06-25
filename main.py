@@ -166,7 +166,18 @@ def split_simple_sentence(sentence: str):
     return subject, verb, object_part, complement
 
 def format_table(rows):
-    title_width = max(len(r[0]) for r in rows)
+    label_width = max(len(r[0]) for r in rows)
     value_width = max(len(r[1]) for r in rows)
-    top = f"╔{'═' * (title_width + 2)}╦{'═' * (value_width + 2)}╗"
-    mid = 
+
+    top = f"╔{'═' * (label_width + 2)}╦{'═' * (value_width + 2)}╗"
+    mid = f"╠{'═' * (label_width + 2)}╬{'═' * (value_width + 2)}╣"
+    bottom = f"╚{'═' * (label_width + 2)}╩{'═' * (value_width + 2)}╝"
+
+    lines = [top]
+    for i, (label, value) in enumerate(rows):
+        lines.append(f"║ {label.ljust(label_width)} ║ {value.ljust(value_width)} ║")
+        if i != len(rows) - 1:
+            lines.append(mid)
+    lines.append(bottom)
+
+    return "\n".join(lines)
