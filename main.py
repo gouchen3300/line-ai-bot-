@@ -49,8 +49,8 @@ async def line_webhook(request: Request):
             if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
                 user_message = event.message.text.strip()
                 
-                # 🤖 真正連線至 Google Gemini AI
-                api_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+                # 🤖 真正連線至 Google Gemini AI (已修正最新 API 網址路徑)
+                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
                 headers = {"Content-Type": "application/json"}
                 payload = {"contents": [{"parts": [{"text": user_message}]}]}
                 
