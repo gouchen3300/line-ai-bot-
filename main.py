@@ -49,7 +49,8 @@ COMMON_VERBS = {
     "work", "works", "study", "studies", "live", "lives",
     "swim", "swims", "run", "runs", "walk", "walks", "buy", "buys",
     "watch", "watches", "teach", "teaches", "use", "uses",
-    "help", "helps", "talk", "talks", "need", "needs", "feel", "feels"
+    "help", "helps", "talk", "talks", "feel", "feels", "look", "looks",
+    "write", "writes", "read", "reads", "open", "opens", "close", "closes"
 }
 
 @app.get("/")
@@ -142,41 +143,48 @@ def detect_sentence_type(sentence: str) -> tuple[str, str]:
 def split_simple_sentence(sentence: str):
     s = sentence.strip().rstrip(".!?")
     tokens = re.findall(r"[A-Za-z']+|[,]", s)
-    lower_tokens = [t.lower() for t in tokens if t != ","]
+    clean_tokens = [t for t in tokens if t != ","]
+    lower_tokens = [t.lower() for t in clean_tokens]
 
     subject = ""
     verb = ""
     object_part = ""
     complement = ""
+    subject_candidate = ""
+    verb_candidate = ""
 
-    if not lower_tokens:
-        return subject, verb, object_part, complement
+    if not clean_tokens:
+        return subject, verb, object_part, complement, subject_candidate, verb_candidate
 
     if lower_tokens[0] in QUESTION_WORDS or lower_tokens[0] in AUX_FORMS:
-        if len(tokens) >= 2:
-            subject = tokens[1]
-        if len(tokens) >= 3:
-            verb = tokens[2]
-        if len(tokens) >= 4:
-            rest = tokens[3:]
+        if len(clean_tokens) >= 2:
+            subject = clean_tokens[1]
+            subject_candidate = clean_tokens[1]
+        if len(clean_tokens) >= 3:
+            verb = clean_tokens[2]
+            verb_candidate = clean_tokens[2]
+        if len(clean_tokens) >= 4:
+            rest = clean_tokens[3:]
             if lower_tokens[0] in BE_FORMS or lower_tokens[0] in MODALS or lower_tokens[0] in DO_FORMS:
                 complement = " ".join(rest)
             else:
                 object_part = " ".join(rest)
-        return subject, verb, object_part, complement
+        return subject, verb, object_part, complement, subject_candidate, verb_candidate
 
-    subject = tokens[0]
+    subject = clean_tokens[0]
+    subject_candidate = clean_tokens[0]
 
-    if len(tokens) >= 2:
-        verb = tokens[1]
+    if len(clean_tokens) >= 2:
+        verb = clean_tokens[1]
+        verb_candidate = clean_tokens[1]
 
-    if len(tokens) >= 3:
+    if len(clean_tokens) >= 3:
         if verb.lower() in BE_FORMS:
-            complement = " ".join(tokens[2:])
+            complement = " ".join(clean_tokens[2:])
         else:
-            object_part = " ".join(tokens[2:])
+            object_part = " ".join(clean_tokens[2:])
 
-    return subject, verb, object_part, complement
+    return subject, verb, object_part, complement, subject_candidate, verb_candidate
 
 def format_table(rows):
     label_width = max(len(r[0]) for r in rows)
@@ -194,6 +202,124 @@ def format_table(rows):
     lines.append(bottom)
     return "\n".join(lines)
 
+def format_card(title, content_lines):
+    width = 40
+    inner = width - 2
+    lines = [f"╔{'═' * width}╗", f"║ {title.center(inner)} ║", f"╠{'═' * width}╣"]
+    for line in content_lines:
+        if line == "":
+            lines.append(f"║ {'':<{inner}} ║")
+        else:
+            for chunk in wrap_line(line, inner):
+                lines.append(f"║ {chunk.ljust(inner)} ║")
+    lines.append(f"╚{'═' * width}╝")
+    return "\n".join(lines)
+
+def wrap_line(text, width):
+    if len(text) <= width:
+        return [text]
+    chunks = []
+    current = ""
+    for word in text.split():
+        if len(current) + len(word) + (1 if current else 0) <= width:
+            current = f"{current} {word}".strip()
+        else:
+            if current:
+                chunks.append(current)
+            current = word
+    if current:
+        chunks.append(current)
+    return chunks
+
+def analyze_sentence_type(type_name, first_word):
+    if type_name == "wh_question":
+        return (
+            "疑問詞問句",
+            "疑問詞開頭，常用來詢問資訊。",
+            [
+                "1. 句首是疑問詞。",
+                "2. 常見疑問詞：what, where, when, why, who, how。",
+                "3. 通常不是單純 Yes/No 問句。"
+            ],
+            "回答方向：用完整句回答，說明原因、時間、地點或方式。"
+        )
+    if type_name == "be_question":
+        return (
+            "be 動詞問句",
+            "以 be 動詞開頭，常問身分、狀態或位置。",
+            [
+                "1. 句首是 be 動詞。",
+                "2. 句型常見：Be 動詞 + 主詞 + 補語？",
+                "3. 很常用在身分、狀態、位置。"
+            ],
+            "回答方向：常用 Yes/No，或補充詳細狀態。"
+        )
+    if type_name == "do_question":
+        return (
+            "do 問句",
+            "以 do / does / did 開頭，常問一般動作。",
+            [
+                "1. 句首是 do / does / did。",
+                "2. 句型常見：Do/Does/Did + 主詞 + 原形動詞？",
+                "3. 常用在一般動詞提問。"
+            ],
+            "回答方向：常用 Yes/No，或簡短說明動作。"
+        )
+    if type_name == "modal_question":
+        return (
+            "情態助動詞問句",
+            "以情態助動詞開頭，表能力、請求或可能。",
+            [
+                "1. 句首是情態助動詞。",
+                "2. 常見：can, could, will, would, should, may, might, must。",
+                "3. 常用來表示能力、請求、建議、可能性。"
+            ],
+            "回答方向：依情態語氣回答，例如可以、可能、建議、義務。"
+        )
+    if type_name == "be_statement":
+        return (
+            "be 動詞陳述句",
+            "用來描述身分、狀態、地點或特徵。",
+            [
+                "1. 這句是陳述句。",
+                "2. 句中含有 be 動詞。",
+                "3. 結構常見：主詞 + be 動詞 + 補語。"
+            ],
+            "回答方向：說明身分、狀態、地點或特徵。"
+        )
+    if type_name == "do_statement":
+        return (
+            "一般動詞陳述句",
+            "用來描述動作、習慣或事件。",
+            [
+                "1. 這句是陳述句。",
+                "2. 可視為一般動作句。",
+                "3. 結構常見：主詞 + 動詞 + 受詞 / 補語。"
+            ],
+            "回答方向：說明動作、習慣或發生的事件。"
+        )
+    if type_name == "modal_statement":
+        return (
+            "情態助動詞陳述句",
+            "表達能力、可能、建議、義務或意願。",
+            [
+                "1. 這句是陳述句。",
+                "2. 句中含有情態助動詞。",
+                "3. 常用來表達能力、可能、建議、義務或意願。"
+            ],
+            "回答方向：說明可能性、建議或能力。"
+        )
+    return (
+        "一般陳述句",
+        "先視為一般動詞句，再往下拆句型。",
+        [
+            "1. 這句不是明顯問句。",
+            "2. 先視為一般動詞陳述句。",
+            "3. 結構常見：主詞 + 動詞 + 受詞 / 補語。"
+        ],
+        "回答方向：先看主詞、動詞、受詞，再補中文意思。"
+    )
+
 def handle_english(text: str):
     content = text.replace("#英文", "", 1).strip()
 
@@ -201,42 +327,10 @@ def handle_english(text: str):
         return [TextMessage(text="請輸入英文句子，例如：#英文 How are you doing?")]
 
     sentence_type, first_word = detect_sentence_type(content)
-    subject, verb, obj, complement = split_simple_sentence(content)
+    subject, verb, obj, complement, subject_candidate, verb_candidate = split_simple_sentence(content)
+    type_name, focus, grammar, answer_hint = analyze_sentence_type(sentence_type, first_word)
 
-    if sentence_type == "wh_question":
-        type_name = "疑問詞問句"
-        explanation = "1. 這句以疑問詞開頭。\n2. 常見疑問詞：what, where, when, why, who, how。\n3. 通常用來詢問資訊，而不是單純 Yes/No。"
-        answer_hint = "回答方向：用完整句回答，說明原因、時間、地點或方式。"
-    elif sentence_type == "be_question":
-        type_name = "be 動詞問句"
-        explanation = "1. 這句以 be 動詞開頭。\n2. 句型通常是：Be 動詞 + 主詞 + 補語？\n3. 常見於身分、狀態、位置的提問。"
-        answer_hint = "回答方向：常用 Yes/No，或補充詳細狀態。"
-    elif sentence_type == "do_question":
-        type_name = "do 問句"
-        explanation = "1. 這句以 do / does / did 開頭。\n2. 句型通常是：Do/Does/Did + 主詞 + 原形動詞？\n3. 常見於一般動詞的提問。"
-        answer_hint = "回答方向：常用 Yes/No，或簡短說明動作。"
-    elif sentence_type == "modal_question":
-        type_name = "情態助動詞問句"
-        explanation = "1. 這句以情態助動詞開頭。\n2. 常見情態助動詞：can, could, will, would, should, may, might, must。\n3. 常用來表示能力、請求、建議、可能性。"
-        answer_hint = "回答方向：依情態語氣回答，例如可以、可能、建議、義務。"
-    elif sentence_type == "be_statement":
-        type_name = "be 動詞陳述句"
-        explanation = "1. 這句是陳述句。\n2. 句中含有 be 動詞。\n3. 常見結構：主詞 + be 動詞 + 補語。"
-        answer_hint = "回答方向：說明身分、狀態、地點或特徵。"
-    elif sentence_type == "do_statement":
-        type_name = "一般動詞陳述句"
-        explanation = "1. 這句是陳述句。\n2. 可視為一般動作句。\n3. 常見結構：主詞 + 動詞 + 受詞 / 補語。"
-        answer_hint = "回答方向：說明動作、習慣或發生的事件。"
-    elif sentence_type == "modal_statement":
-        type_name = "情態助動詞陳述句"
-        explanation = "1. 這句是陳述句。\n2. 句中含有情態助動詞。\n3. 常用來表達能力、可能、建議、義務或意願。"
-        answer_hint = "回答方向：說明可能性、建議或能力。"
-    else:
-        type_name = "一般陳述句"
-        explanation = "1. 這句不是明顯問句。\n2. 先視為一般動詞陳述句。\n3. 常見結構：主詞 + 動詞 + 受詞 / 補語。"
-        answer_hint = "回答方向：先看主詞、動詞、受詞，再補中文意思。"
-
-    rows = [
+    table_rows = [
         ("欄位", "內容"),
         ("句首類型", first_word or "無法判斷"),
         ("句型分類", type_name),
@@ -245,22 +339,35 @@ def handle_english(text: str):
         ("受詞", obj or "—"),
         ("補語", complement or "—"),
     ]
+    table_text = format_table(table_rows)
 
-    table_text = format_table(rows)
+    card_1 = format_card("英文老師分析", [
+        f"原句：{content}",
+        f"句型：{type_name}",
+        f"重點：{focus}",
+    ])
 
-    reply = f"""英文句子：
-{content}
+    card_2 = format_card("句子拆解", [
+        f"主詞候選：{subject_candidate or '—'}",
+        f"動詞候選：{verb_candidate or '—'}",
+        f"受詞：{obj or '—'}",
+        f"補語：{complement or '—'}",
+    ])
 
-句型判斷：
-{type_name}
+    card_3 = format_card("文法提醒", [
+        *grammar,
+        "",
+        answer_hint,
+    ])
 
-判斷說明：
-{explanation}
+    reply = f"""{card_1}
 
-{answer_hint}
+{card_2}
 
 主詞動詞分析：
 {table_text}
+
+{card_3}
 
 中文意思：
 （請先自行翻譯）
